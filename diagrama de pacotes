@@ -1,0 +1,73 @@
+flowchart TD
+    subgraph Frontend ["Frontend"]
+        subgraph Web ["examecare-web"]
+            subgraph Src ["src"]
+                Components["components"]
+                Pages["pages"]
+                Hooks["hooks"]
+                Contexts["contexts"]
+                ServicesF["services"]
+                UtilsF["utils"]
+                Assets["assets"]
+            end
+        end
+    end
+
+    subgraph Backend ["Backend"]
+        subgraph Api ["examecare-api"]
+            subgraph SrcB ["src"]
+                subgraph Presentation ["presentation"]
+                    Controllers["controllers"]
+                    DTOs["dtos"]
+                    Guards["guards"]
+                end
+                
+                subgraph Application ["application"]
+                    Services["services"]
+                    UseCases["use-cases"]
+                end
+                
+                subgraph Domain ["domain"]
+                    Entities["entities"]
+                    Repositories["repositories"]
+                    ValueObjects["value-objects"]
+                end
+                
+                subgraph Infrastructure ["infrastructure"]
+                    subgraph Database ["database"]
+                        Prisma["prisma"]
+                        Migrations["migrations"]
+                    end
+                    Auth["auth"]
+                    Security["security"]
+                    Config["config"]
+                    Logging["logging"]
+                end
+                
+                subgraph Common ["common"]
+                    Decorators["decorators"]
+                    Filters["filters"]
+                    Interceptors["interceptors"]
+                    Exceptions["exceptions"]
+                end
+            end
+        end
+    end
+
+    subgraph Shared ["Shared Kernel"]
+        UtilsS["utils"]
+        Constants["constants"]
+        ExceptionsS["exceptions"]
+    end
+
+    %% Dependências
+    Presentation --> Application
+    Application --> Domain
+    Domain --> Infrastructure
+    Presentation -.-> Infrastructure
+    
+    Web --> Api
+    
+    Guards --> Auth
+    Services --> Repositories
+    Entities --> ValueObjects
