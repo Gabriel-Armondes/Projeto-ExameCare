@@ -26,6 +26,20 @@ python -m http.server 5173
 
 Depois acesse `http://localhost:5173`.
 
+## Validação manual
+
+Antes da entrega, valide os fluxos principais:
+
+- criar conta com consentimento LGPD;
+- fazer login e logout;
+- cadastrar, editar e excluir idoso;
+- agendar exame com data futura, tipo, especialidade e local;
+- bloquear exame sem campos obrigatórios ou com data inválida;
+- editar e cancelar exame agendado com data futura;
+- marcar exame como realizado;
+- confirmar que exame realizado aparece no histórico e não pode ser editado ou cancelado;
+- conferir lembrete visual para exames em 5 ou 1 dias.
+
 ## Observação técnica
 
 Esta versão usa `localStorage` para permitir validação rápida do MVP sem backend. Em produção, os documentos indicam evolução para React/Vite no front-end, API REST em NestJS, Prisma e banco relacional PostgreSQL/MySQL, com senhas hasheadas, HTTPS, autenticação JWT e notificações push reais.
