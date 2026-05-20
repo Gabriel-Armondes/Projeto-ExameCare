@@ -27,6 +27,7 @@ const initialState = {
   users: [],
   patients: [],
   exams: [],
+  consultations: [],
   audit: []
 };
 
@@ -35,6 +36,7 @@ let session = loadSession();
 let ui = {
   authMode: "login",
   tab: "agenda",
+  module: "exams",
   selectedPatientId: null,
   examFilter: "Agendado",
   modal: null,
@@ -100,11 +102,41 @@ function formatDate(date) {
   return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR");
 }
 
+function isoToBR(date) {
+  if (!date) return "";
+  const [year, month, day] = date.split("-");
+  return `${day}/${month}/${year}`;
+}
+
+function brToISO(value) {
+  const match = String(value).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  const [, day, month, year] = match;
+  const date = new Date(`${year}-${month}-${day}T00:00:00`);
+  const isRealDate =
+    date.getFullYear() === Number(year) &&
+    date.getMonth() + 1 === Number(month) &&
+    date.getDate() === Number(day);
+  return isRealDate ? `${year}-${month}-${day}` : null;
+}
+
+function isStrongPassword(password) {
+  return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$/.test(password);
+}
+
 function getCurrentUser() {
   return state.users.find((user) => user.id === session?.userId) || null;
 }
 
+function isProfessional() {
+  return getCurrentUser()?.role === "professional";
+}
+
 function getPatients() {
+  if (isProfessional()) {
+    return state.patients.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }
+
   return state.patients
     .filter((patient) => patient.userId === session?.userId)
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
@@ -119,7 +151,11 @@ function getSelectedPatient() {
 }
 
 function getPatientExams(patientId) {
-  return state.exams.filter((exam) => exam.userId === session?.userId && exam.patientId === patientId);
+  return state.exams.filter((exam) => exam.patientId === patientId && (isProfessional() || exam.userId === session?.userId));
+}
+
+function getPatientConsultations(patientId) {
+  return state.consultations.filter((consultation) => consultation.patientId === patientId && (isProfessional() || consultation.userId === session?.userId));
 }
 
 function audit(action, examId = null) {
@@ -143,7 +179,7 @@ function toast(message) {
 }
 
 function render() {
-  document.body.classList.toggle("high-contrast", Boolean(getCurrentUser()?.highContrast));
+  document.body.classList.toggle("black-theme", getCurrentUser()?.theme === "black" || Boolean(getCurrentUser()?.highContrast));
   app.innerHTML = session && getCurrentUser() ? dashboardTemplate() : authTemplate();
   bindEvents();
 }
@@ -184,7 +220,7 @@ function loginTemplate() {
   return `
     <form id="loginForm" class="form-grid">
       <div>
-        <span class="eyebrow">Área do familiar</span>
+        <span class="eyebrow">Área segura</span>
         <h2>Entrar no ExameCare</h2>
         <p class="muted">Use sua conta para acessar os dados protegidos deste navegador.</p>
       </div>
@@ -206,9 +242,9 @@ function registerTemplate() {
   return `
     <form id="registerForm" class="form-grid">
       <div>
-        <span class="eyebrow">Novo responsável</span>
+        <span class="eyebrow">Novo usuário</span>
         <h2>Criar conta</h2>
-        <p class="muted">A senha precisa ter pelo menos 8 caracteres.</p>
+        <p class="muted">Use senha forte: mínimo 10 caracteres, maiúscula, minúscula, número e símbolo.</p>
       </div>
       <div class="field">
         <label for="registerName">Nome completo</label>
@@ -218,14 +254,21 @@ function registerTemplate() {
         <label for="registerEmail">E-mail</label>
         <input id="registerEmail" name="email" type="email" autocomplete="email" required />
       </div>
+      <div class="field">
+        <label for="registerRole">Tipo de usuário</label>
+        <select id="registerRole" name="role" required>
+          <option value="family">Familiar / cuidador</option>
+          <option value="professional">Profissional de saúde</option>
+        </select>
+      </div>
       <div class="two-cols form-grid">
         <div class="field">
           <label for="registerPassword">Senha</label>
-          <input id="registerPassword" name="password" type="password" autocomplete="new-password" required minlength="8" />
+          <input id="registerPassword" name="password" type="password" autocomplete="new-password" required minlength="10" />
         </div>
         <div class="field">
           <label for="confirmPassword">Confirmar senha</label>
-          <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required minlength="8" />
+          <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required minlength="10" />
         </div>
       </div>
       <label class="checkbox-row">
@@ -269,11 +312,11 @@ function dashboardTemplate() {
             <div class="avatar" aria-hidden="true">${user.name.slice(0, 1).toUpperCase()}</div>
             <div>
               <strong>ExameCare</strong>
-              <div class="muted">${escapeHTML(user.name)}</div>
+              <div class="muted">${escapeHTML(user.name)} · ${isProfessional() ? "Profissional" : "Familiar"}</div>
             </div>
           </div>
           <div class="patient-actions">
-            <button class="secondary-btn" type="button" id="contrastBtn">${user.highContrast ? "Contraste padrão" : "Alto contraste"}</button>
+            <button class="secondary-btn" type="button" id="themeBtn">${user.theme === "black" || user.highContrast ? "Modo branco" : "Modo preto"}</button>
             <button class="ghost-btn" type="button" id="logoutBtn">Sair</button>
           </div>
         </div>
@@ -284,7 +327,7 @@ function dashboardTemplate() {
           <div class="hero-copy">
             <span class="eyebrow">MVP familiar</span>
             <h1>Agenda e histórico de exames em um só lugar.</h1>
-            <p class="muted">Selecione um idoso, registre exames futuros e mantenha o histórico confiável depois da realização.</p>
+            <p class="muted">Selecione uma pessoa, registre exames e consultas, e mantenha o histórico confiável com permissões por perfil.</p>
           </div>
           <div class="stats-grid" aria-label="Resumo">
             <div class="stat-card"><strong>${stats.patients}</strong><span class="muted">idosos</span></div>
@@ -298,11 +341,11 @@ function dashboardTemplate() {
         <section class="content-grid">
           <aside class="panel">
             <div class="panel-header">
-              <h2>Idosos</h2>
-              <button class="icon-btn" type="button" id="addPatientBtn" title="Adicionar idoso">+</button>
+              <h2>Pessoas</h2>
+              <button class="icon-btn" type="button" id="addPatientBtn" title="Adicionar pessoa">+</button>
             </div>
             <div class="patient-list">
-              ${patients.length ? patients.map(patientCardTemplate).join("") : emptyTemplate("Cadastre o primeiro idoso para começar a agenda.")}
+              ${patients.length ? patients.map(patientCardTemplate).join("") : emptyTemplate("Cadastre a primeira pessoa para começar a agenda.")}
             </div>
           </aside>
 
@@ -329,14 +372,6 @@ function patientCardTemplate(patient) {
 }
 
 function patientWorkspaceTemplate(patient) {
-  const exams = getPatientExams(patient.id);
-  const filtered = exams
-    .filter((exam) => ui.examFilter === "Todos" || exam.status === ui.examFilter)
-    .sort((a, b) => {
-      const dir = ui.examFilter === "Realizado" ? -1 : 1;
-      return a.date.localeCompare(b.date) * dir;
-    });
-
   return `
     <div class="panel-header">
       <div>
@@ -349,6 +384,32 @@ function patientWorkspaceTemplate(patient) {
       </div>
     </div>
 
+    <div class="tabs" role="tablist" aria-label="Módulos">
+      ${moduleButton("exams", "Exames")}
+      ${moduleButton("consultations", "Consultas")}
+      ${moduleButton("users", "Usuários")}
+    </div>
+
+    ${ui.module === "exams" ? examsModuleTemplate(patient) : ""}
+    ${ui.module === "consultations" ? consultationsModuleTemplate(patient) : ""}
+    ${ui.module === "users" ? usersModuleTemplate(patient) : ""}
+  `;
+}
+
+function moduleButton(module, label) {
+  return `<button type="button" data-module="${module}" class="${ui.module === module ? "active" : ""}" role="tab">${label}</button>`;
+}
+
+function examsModuleTemplate(patient) {
+  const exams = getPatientExams(patient.id);
+  const filtered = exams
+    .filter((exam) => ui.examFilter === "Todos" || exam.status === ui.examFilter)
+    .sort((a, b) => {
+      const dir = ui.examFilter === "Realizado" ? -1 : 1;
+      return a.date.localeCompare(b.date) * dir;
+    });
+
+  return `
     <div class="tabs" role="tablist" aria-label="Visualização de exames">
       ${filterButton("Agendado", "Agenda")}
       ${filterButton("Realizado", "Histórico")}
@@ -357,12 +418,46 @@ function patientWorkspaceTemplate(patient) {
     </div>
 
     <div class="toolbar">
-      <p class="muted">${filtered.length} registro(s) encontrados</p>
+      <p class="muted">${filtered.length} exame(s) encontrados</p>
       <button class="primary-btn" type="button" id="addExamBtn">Agendar exame</button>
     </div>
-
     <div class="exam-list">
       ${filtered.length ? filtered.map(examCardTemplate).join("") : emptyTemplate("Nenhum exame para esta visualização.")}
+    </div>
+  `;
+}
+
+function consultationsModuleTemplate(patient) {
+  const consultations = getPatientConsultations(patient.id).sort((a, b) => a.date.localeCompare(b.date));
+  return `
+    <div class="toolbar">
+      <p class="muted">${consultations.length} consulta(s) encontradas</p>
+      <button class="primary-btn" type="button" id="addConsultationBtn">Agendar consulta</button>
+    </div>
+    <div class="exam-list">
+      ${consultations.length ? consultations.map(consultationCardTemplate).join("") : emptyTemplate("Nenhuma consulta registrada para esta pessoa.")}
+    </div>
+  `;
+}
+
+function usersModuleTemplate(patient) {
+  const owner = state.users.find((user) => user.id === patient.userId);
+  const professionals = state.users.filter((user) => user.role === "professional");
+  return `
+    <div class="toolbar">
+      <p class="muted">Responsável e profissionais cadastrados no sistema</p>
+    </div>
+    <div class="exam-list">
+      <article class="exam-card">
+        <strong>Responsável pela pessoa</strong>
+        <p class="muted">${escapeHTML(owner?.name || "Não localizado")} · ${escapeHTML(owner?.email || "")}</p>
+      </article>
+      ${professionals.length ? professionals.map((user) => `
+        <article class="exam-card">
+          <strong>${escapeHTML(user.name)}</strong>
+          <p class="muted">${escapeHTML(user.email)} · Profissional de saúde</p>
+        </article>
+      `).join("") : emptyTemplate("Nenhum profissional cadastrado neste navegador.")}
     </div>
   `;
 }
@@ -372,9 +467,10 @@ function filterButton(filter, label) {
 }
 
 function examCardTemplate(exam) {
-  const isEditable = exam.status === "Agendado" && isFutureDate(exam.date);
-  const canCancel = exam.status === "Agendado" && isFutureDate(exam.date);
-  const canComplete = exam.status === "Agendado";
+  const canManage = isProfessional();
+  const isEditable = canManage && exam.status === "Agendado" && isFutureDate(exam.date);
+  const canCancel = canManage && exam.status === "Agendado" && isFutureDate(exam.date);
+  const canComplete = canManage && exam.status === "Agendado";
   return `
     <article class="exam-card">
       <div class="exam-top">
@@ -390,12 +486,49 @@ function examCardTemplate(exam) {
         <div class="meta-item"><span>Local</span>${escapeHTML(exam.location)}</div>
         <div class="meta-item"><span>Observações</span>${escapeHTML(exam.notes || "Sem observações")}</div>
       </div>
+      ${exam.resultSummary || exam.resultFileName ? `
+        <div class="result-box">
+          <strong>Resultado do exame</strong>
+          <p>${escapeHTML(exam.resultSummary || "Resultado anexado pelo profissional.")}</p>
+          ${exam.resultFileName ? `<span class="muted">Arquivo: ${escapeHTML(exam.resultFileName)}</span>` : ""}
+        </div>
+      ` : ""}
       <div class="exam-actions">
         <button class="secondary-btn" type="button" data-edit-exam="${exam.id}" ${isEditable ? "" : "disabled"}>Editar</button>
         <button class="secondary-btn" type="button" data-complete-exam="${exam.id}" ${canComplete ? "" : "disabled"}>Realizado</button>
+        <button class="secondary-btn" type="button" data-result-exam="${exam.id}" ${canManage ? "" : "disabled"}>Resultado</button>
         <button class="danger-btn" type="button" data-cancel-exam="${exam.id}" ${canCancel ? "" : "disabled"}>Cancelar</button>
+        <button class="danger-btn" type="button" data-delete-exam="${exam.id}" ${canManage ? "" : "disabled"}>Apagar</button>
       </div>
-      ${exam.status === "Agendado" && !isFutureDate(exam.date) ? `<p class="danger-text">Data vencida: confirme a realização para mover ao histórico.</p>` : ""}
+      ${!canManage ? `<p class="muted">Apenas profissionais podem editar, apagar, marcar como realizado ou subir resultado.</p>` : ""}
+      ${exam.status === "Agendado" && !isFutureDate(exam.date) && canManage ? `<p class="danger-text">Data vencida: confirme a realização para mover ao histórico.</p>` : ""}
+    </article>
+  `;
+}
+
+function consultationCardTemplate(consultation) {
+  const canManage = isProfessional();
+  return `
+    <article class="exam-card">
+      <div class="exam-top">
+        <div class="exam-title">
+          <strong>${escapeHTML(consultation.specialty)}</strong>
+          <span class="muted">${escapeHTML(consultation.professionalName || "Profissional não informado")}</span>
+        </div>
+        <span class="status ${consultation.status.toLowerCase()}">${consultation.status}</span>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-item"><span>Data</span>${formatDate(consultation.date)}</div>
+        <div class="meta-item"><span>Horário</span>${escapeHTML(consultation.time || "Não informado")}</div>
+        <div class="meta-item"><span>Local</span>${escapeHTML(consultation.location)}</div>
+        <div class="meta-item"><span>Motivo</span>${escapeHTML(consultation.reason || "Não informado")}</div>
+      </div>
+      <div class="exam-actions">
+        <button class="secondary-btn" type="button" data-edit-consultation="${consultation.id}" ${canManage ? "" : "disabled"}>Editar</button>
+        <button class="secondary-btn" type="button" data-complete-consultation="${consultation.id}" ${canManage && consultation.status === "Agendada" ? "" : "disabled"}>Realizada</button>
+        <button class="danger-btn" type="button" data-cancel-consultation="${consultation.id}" ${canManage && consultation.status === "Agendada" ? "" : "disabled"}>Cancelar</button>
+      </div>
+      ${!canManage ? `<p class="muted">Apenas profissionais podem editar ou alterar o status da consulta.</p>` : ""}
     </article>
   `;
 }
@@ -407,7 +540,13 @@ function emptyTemplate(message) {
 function modalTemplate() {
   if (!ui.modal) return "";
   const modal = ui.modal;
-  const title = modal.type === "patient" ? (modal.id ? "Editar idoso" : "Adicionar idoso") : (modal.id ? "Editar exame" : "Agendar exame");
+  const titles = {
+    patient: modal.id ? "Editar pessoa" : "Adicionar pessoa",
+    exam: modal.id ? "Editar exame" : "Agendar exame",
+    result: "Subir resultado",
+    consultation: modal.id ? "Editar consulta" : "Agendar consulta"
+  };
+  const title = titles[modal.type];
 
   return `
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="${title}">
@@ -416,7 +555,10 @@ function modalTemplate() {
           <h2>${title}</h2>
           <button class="icon-btn" type="button" id="closeModalBtn" title="Fechar">×</button>
         </div>
-        ${modal.type === "patient" ? patientFormTemplate(modal) : examFormTemplate(modal)}
+        ${modal.type === "patient" ? patientFormTemplate(modal) : ""}
+        ${modal.type === "exam" ? examFormTemplate(modal) : ""}
+        ${modal.type === "result" ? resultFormTemplate(modal) : ""}
+        ${modal.type === "consultation" ? consultationFormTemplate(modal) : ""}
       </div>
     </div>
   `;
@@ -434,14 +576,14 @@ function patientFormTemplate(modal) {
       <div class="two-cols form-grid">
         <div class="field">
           <label for="birthDate">Data de nascimento</label>
-          <input id="birthDate" name="birthDate" type="date" value="${patient?.birthDate || ""}" required />
+          <input id="birthDate" name="birthDate" inputmode="numeric" placeholder="00/00/0000" value="${isoToBR(patient?.birthDate)}" data-date-mask required />
         </div>
         <div class="field">
           <label for="cpf">CPF</label>
           <input id="cpf" name="cpf" value="${escapeAttr(patient?.cpf || "")}" />
         </div>
       </div>
-      <button class="primary-btn" type="submit">Salvar idoso</button>
+      <button class="primary-btn" type="submit">Salvar pessoa</button>
     </form>
   `;
 }
@@ -454,7 +596,7 @@ function examFormTemplate(modal) {
       <div class="two-cols form-grid">
         <div class="field">
           <label for="examDate">Data do exame</label>
-          <input id="examDate" name="date" type="date" min="${addDaysISO(1)}" value="${exam?.date || ""}" required />
+          <input id="examDate" name="date" inputmode="numeric" placeholder="00/00/0000" value="${isoToBR(exam?.date)}" data-date-mask required />
         </div>
         <div class="field">
           <label for="examTime">Horário</label>
@@ -490,13 +632,73 @@ function examFormTemplate(modal) {
   `;
 }
 
+function resultFormTemplate(modal) {
+  const exam = state.exams.find((item) => item.id === modal.id) || {};
+  return `
+    <form id="resultForm" class="form-grid">
+      <input type="hidden" name="id" value="${exam.id || ""}" />
+      <div class="field">
+        <label for="resultFile">Arquivo do resultado</label>
+        <input id="resultFile" name="resultFile" type="file" accept=".pdf,.png,.jpg,.jpeg" />
+      </div>
+      <div class="field">
+        <label for="resultSummary">Resumo do resultado</label>
+        <textarea id="resultSummary" name="resultSummary" required>${escapeHTML(exam.resultSummary || "")}</textarea>
+      </div>
+      <button class="primary-btn" type="submit">Salvar resultado</button>
+    </form>
+  `;
+}
+
+function consultationFormTemplate(modal) {
+  const consultation = modal.id ? state.consultations.find((item) => item.id === modal.id) : {};
+  const defaultProfessionalName = consultation?.professionalName || (isProfessional() ? getCurrentUser()?.name || "" : "");
+  return `
+    <form id="consultationForm" class="form-grid">
+      <input type="hidden" name="id" value="${consultation?.id || ""}" />
+      <div class="two-cols form-grid">
+        <div class="field">
+          <label for="consultationDate">Data da consulta</label>
+          <input id="consultationDate" name="date" inputmode="numeric" placeholder="00/00/0000" value="${isoToBR(consultation?.date)}" data-date-mask required />
+        </div>
+        <div class="field">
+          <label for="consultationTime">Horário</label>
+          <input id="consultationTime" name="time" type="time" value="${consultation?.time || ""}" />
+        </div>
+      </div>
+      <div class="two-cols form-grid">
+        <div class="field">
+          <label for="consultationSpecialty">Especialidade</label>
+          <select id="consultationSpecialty" name="specialty" required>
+            <option value="">Selecione</option>
+            ${optionList(MEDICAL_SPECIALTIES, consultation?.specialty)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="professionalName">Profissional</label>
+          <input id="professionalName" name="professionalName" value="${escapeAttr(defaultProfessionalName)}" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="consultationLocation">Local</label>
+        <input id="consultationLocation" name="location" value="${escapeAttr(consultation?.location || "")}" required />
+      </div>
+      <div class="field">
+        <label for="consultationReason">Motivo</label>
+        <textarea id="consultationReason" name="reason">${escapeHTML(consultation?.reason || "")}</textarea>
+      </div>
+      <button class="primary-btn" type="submit">Salvar consulta</button>
+    </form>
+  `;
+}
+
 function toastTemplate() {
   return ui.toast ? `<div class="toast" role="status">${escapeHTML(ui.toast)}</div>` : "";
 }
 
 function getStats() {
   const patients = getPatients();
-  const exams = state.exams.filter((exam) => exam.userId === session?.userId);
+  const exams = state.exams.filter((exam) => isProfessional() || exam.userId === session?.userId);
   return {
     patients: patients.length,
     upcoming: exams.filter((exam) => exam.status === "Agendado").length,
@@ -505,7 +707,7 @@ function getStats() {
 }
 
 function getReminders() {
-  const exams = state.exams.filter((exam) => exam.userId === session?.userId && exam.status === "Agendado");
+  const exams = state.exams.filter((exam) => (isProfessional() || exam.userId === session?.userId) && exam.status === "Agendado");
   return exams
     .map((exam) => ({ ...exam, remainingDays: daysUntil(exam.date) }))
     .filter((exam) => exam.remainingDays === 5 || exam.remainingDays === 1)
@@ -529,7 +731,11 @@ function bindEvents() {
   document.querySelector("#loginForm")?.addEventListener("submit", handleLogin);
   document.querySelector("#recoverForm")?.addEventListener("submit", handleRecover);
   document.querySelector("#logoutBtn")?.addEventListener("click", handleLogout);
-  document.querySelector("#contrastBtn")?.addEventListener("click", toggleContrast);
+  document.querySelector("#themeBtn")?.addEventListener("click", toggleTheme);
+
+  document.querySelectorAll("[data-date-mask]").forEach((input) => {
+    input.addEventListener("input", applyDateMask);
+  });
 
   document.querySelectorAll("[data-select-patient]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -541,6 +747,13 @@ function bindEvents() {
   document.querySelectorAll("[data-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       ui.examFilter = button.dataset.filter;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-module]").forEach((button) => {
+    button.addEventListener("click", () => {
+      ui.module = button.dataset.module;
       render();
     });
   });
@@ -563,10 +776,29 @@ function bindEvents() {
   document.querySelectorAll("[data-complete-exam]").forEach((button) => {
     button.addEventListener("click", () => completeExam(button.dataset.completeExam));
   });
+  document.querySelectorAll("[data-delete-exam]").forEach((button) => {
+    button.addEventListener("click", () => deleteExam(button.dataset.deleteExam));
+  });
+  document.querySelectorAll("[data-result-exam]").forEach((button) => {
+    button.addEventListener("click", () => openResultModal(button.dataset.resultExam));
+  });
+
+  document.querySelector("#addConsultationBtn")?.addEventListener("click", () => openConsultationModal());
+  document.querySelectorAll("[data-edit-consultation]").forEach((button) => {
+    button.addEventListener("click", () => openConsultationModal(button.dataset.editConsultation));
+  });
+  document.querySelectorAll("[data-cancel-consultation]").forEach((button) => {
+    button.addEventListener("click", () => updateConsultationStatus(button.dataset.cancelConsultation, "Cancelada"));
+  });
+  document.querySelectorAll("[data-complete-consultation]").forEach((button) => {
+    button.addEventListener("click", () => updateConsultationStatus(button.dataset.completeConsultation, "Realizada"));
+  });
 
   document.querySelector("#closeModalBtn")?.addEventListener("click", closeModal);
   document.querySelector("#patientForm")?.addEventListener("submit", handlePatientSave);
   document.querySelector("#examForm")?.addEventListener("submit", handleExamSave);
+  document.querySelector("#resultForm")?.addEventListener("submit", handleResultSave);
+  document.querySelector("#consultationForm")?.addEventListener("submit", handleConsultationSave);
 }
 
 function handleRegister(event) {
@@ -579,13 +811,13 @@ function handleRegister(event) {
     return;
   }
 
-  if (data.password.length < 8) {
-    toast("A senha deve ter pelo menos 8 caracteres.");
+  if (!isStrongPassword(data.password)) {
+    toast("Use senha forte: 10+ caracteres, maiúscula, minúscula, número e símbolo.");
     return;
   }
 
   if (data.password !== data.confirmPassword) {
-    toast("As senhas não coincidem.");
+    toast("A senha e a confirmação precisam ter exatamente os mesmos caracteres.");
     return;
   }
 
@@ -593,9 +825,10 @@ function handleRegister(event) {
     id: uid("user"),
     name: data.name.trim(),
     email,
+    role: data.role,
     password: data.password,
     consentAt: new Date().toISOString(),
-    highContrast: false,
+    theme: "light",
     failedLogins: 0,
     lockedUntil: null
   };
@@ -655,9 +888,10 @@ function handleLogout() {
   render();
 }
 
-function toggleContrast() {
+function toggleTheme() {
   const user = getCurrentUser();
-  user.highContrast = !user.highContrast;
+  user.theme = user.theme === "black" || user.highContrast ? "light" : "black";
+  user.highContrast = false;
   saveState();
   render();
 }
@@ -673,7 +907,34 @@ function openExamModal(id = null) {
     toast("Cadastre um idoso antes de agendar exames.");
     return;
   }
+  if (id && !isProfessional()) {
+    toast("Apenas profissionais podem editar exames.");
+    return;
+  }
   ui.modal = { type: "exam", id };
+  render();
+}
+
+function openResultModal(id) {
+  if (!isProfessional()) {
+    toast("Apenas profissionais podem subir resultados.");
+    return;
+  }
+  ui.modal = { type: "result", id };
+  render();
+}
+
+function openConsultationModal(id = null) {
+  const selectedPatient = getSelectedPatient();
+  if (!selectedPatient) {
+    toast("Cadastre uma pessoa antes de agendar consultas.");
+    return;
+  }
+  if (id && !isProfessional()) {
+    toast("Apenas profissionais podem editar consultas.");
+    return;
+  }
+  ui.modal = { type: "consultation", id };
   render();
 }
 
@@ -682,19 +943,37 @@ function closeModal() {
   render();
 }
 
+function applyDateMask(event) {
+  const digits = event.target.value.replace(/\D/g, "").slice(0, 8);
+  const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean);
+  event.target.value = parts.join("/");
+}
+
 function handlePatientSave(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget));
   const id = data.id || uid("patient");
+  const birthDate = brToISO(data.birthDate);
+
+  if (!birthDate) {
+    toast("Informe uma data de nascimento real no formato 00/00/0000.");
+    return;
+  }
+
+  if (birthDate >= todayISO()) {
+    toast("A data de nascimento precisa ser anterior à data atual.");
+    return;
+  }
+
   const payload = {
     id,
-    userId: session.userId,
+    userId: state.patients.find((patient) => patient.id === id)?.userId || session.userId,
     name: data.name.trim(),
-    birthDate: data.birthDate,
+    birthDate,
     cpf: data.cpf.trim()
   };
 
-  if (!payload.name || !payload.birthDate) {
+  if (!payload.name) {
     toast("Nome e data de nascimento são obrigatórios.");
     return;
   }
@@ -735,33 +1014,42 @@ function handleExamSave(event) {
   const selectedPatient = getSelectedPatient();
   const id = data.id || uid("exam");
   const existing = state.exams.find((exam) => exam.id === id);
+  const examDate = brToISO(data.date);
 
   if (existing && existing.status !== "Agendado") {
     toast("Exames realizados ou cancelados não podem ser editados.");
     return;
   }
 
-  if (!data.date || !data.type || !data.specialty || !data.location.trim()) {
+  if (existing && !isProfessional()) {
+    toast("Apenas profissionais podem editar exames.");
+    return;
+  }
+
+  if (!examDate || !data.type || !data.specialty || !data.location.trim()) {
     toast("Data, tipo de exame, especialidade e local são obrigatórios.");
     return;
   }
 
-  if (!isFutureDate(data.date)) {
-    toast("A data do exame deve ser futura.");
+  if (!isFutureDate(examDate)) {
+    toast("A data do exame deve ser futura e estar no formato 00/00/0000.");
     return;
   }
 
   const payload = {
     id,
-    userId: session.userId,
+    userId: existing?.userId || selectedPatient.userId || session.userId,
     patientId: selectedPatient.id,
-    date: data.date,
+    date: examDate,
     time: data.time,
     type: data.type,
     specialty: data.specialty,
     location: data.location.trim(),
     notes: data.notes.trim(),
     status: "Agendado",
+    resultSummary: existing?.resultSummary || "",
+    resultFileName: existing?.resultFileName || "",
+    resultUploadedAt: existing?.resultUploadedAt || null,
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -783,6 +1071,10 @@ function handleExamSave(event) {
 }
 
 function cancelExam(id) {
+  if (!isProfessional()) {
+    toast("Apenas profissionais podem cancelar exames.");
+    return;
+  }
   const exam = state.exams.find((item) => item.id === id);
   if (!exam || exam.status !== "Agendado" || !isFutureDate(exam.date)) {
     toast("Só é possível cancelar exames agendados com data futura.");
@@ -799,6 +1091,10 @@ function cancelExam(id) {
 }
 
 function completeExam(id) {
+  if (!isProfessional()) {
+    toast("Apenas profissionais podem marcar exames como realizados.");
+    return;
+  }
   const exam = state.exams.find((item) => item.id === id);
   if (!exam || exam.status !== "Agendado") {
     toast("Este exame não pode ser marcado como realizado.");
@@ -812,6 +1108,112 @@ function completeExam(id) {
   ui.examFilter = "Realizado";
   saveState();
   toast("Exame movido para o histórico.");
+  render();
+}
+
+function deleteExam(id) {
+  if (!isProfessional()) {
+    toast("Apenas profissionais podem apagar exames.");
+    return;
+  }
+  if (!window.confirm("Apagar este exame definitivamente do protótipo?")) return;
+  state.exams = state.exams.filter((exam) => exam.id !== id);
+  audit("EXAM_DELETED", id);
+  saveState();
+  toast("Exame apagado.");
+  render();
+}
+
+function handleResultSave(event) {
+  event.preventDefault();
+  if (!isProfessional()) {
+    toast("Apenas profissionais podem subir resultados.");
+    return;
+  }
+  const data = new FormData(event.currentTarget);
+  const id = data.get("id");
+  const exam = state.exams.find((item) => item.id === id);
+  if (!exam) {
+    toast("Exame não encontrado.");
+    return;
+  }
+  const file = data.get("resultFile");
+  exam.resultSummary = String(data.get("resultSummary") || "").trim();
+  exam.resultFileName = file?.name || exam.resultFileName || "";
+  exam.resultUploadedAt = new Date().toISOString();
+  exam.updatedAt = new Date().toISOString();
+  audit("EXAM_RESULT_UPLOADED", id);
+  ui.modal = null;
+  saveState();
+  toast("Resultado salvo no exame.");
+  render();
+}
+
+function handleConsultationSave(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const selectedPatient = getSelectedPatient();
+  const id = data.id || uid("consultation");
+  const existing = state.consultations.find((consultation) => consultation.id === id);
+  const consultationDate = brToISO(data.date);
+
+  if (existing && !isProfessional()) {
+    toast("Apenas profissionais podem editar consultas.");
+    return;
+  }
+
+  if (!consultationDate || !data.specialty || !data.location.trim()) {
+    toast("Data, especialidade e local são obrigatórios para consulta.");
+    return;
+  }
+
+  if (!isFutureDate(consultationDate)) {
+    toast("A data da consulta deve ser futura e estar no formato 00/00/0000.");
+    return;
+  }
+
+  const payload = {
+    id,
+    userId: existing?.userId || selectedPatient.userId || session.userId,
+    patientId: selectedPatient.id,
+    date: consultationDate,
+    time: data.time,
+    specialty: data.specialty,
+    professionalName: data.professionalName.trim(),
+    location: data.location.trim(),
+    reason: data.reason.trim(),
+    status: existing?.status || "Agendada",
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const index = state.consultations.findIndex((consultation) => consultation.id === id);
+  if (index >= 0) {
+    state.consultations[index] = payload;
+    audit("CONSULTATION_UPDATED", id);
+  } else {
+    state.consultations.push(payload);
+    audit("CONSULTATION_CREATED", id);
+  }
+
+  ui.modal = null;
+  saveState();
+  toast("Consulta salva.");
+  render();
+}
+
+function updateConsultationStatus(id, status) {
+  if (!isProfessional()) {
+    toast("Apenas profissionais podem alterar consultas.");
+    return;
+  }
+  const consultation = state.consultations.find((item) => item.id === id);
+  if (!consultation) return;
+  consultation.status = status;
+  consultation.updatedAt = new Date().toISOString();
+  audit(`CONSULTATION_${status.toUpperCase()}`, id);
+  saveState();
+  toast(`Consulta marcada como ${status.toLowerCase()}.`);
   render();
 }
 

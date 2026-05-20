@@ -30,7 +30,8 @@ body {
   min-height: 100vh;
 }
 
-body.high-contrast {
+body.high-contrast,
+body.black-theme {
   --bg: #ffffff;
   --surface: #ffffff;
   --surface-soft: #f0f0f0;
@@ -44,6 +45,35 @@ body.high-contrast {
   --warning: #5f4300;
   --ok: #005f2f;
   --shadow: none;
+}
+
+body.black-theme {
+  color-scheme: dark;
+  --bg: #000000;
+  --surface: #111111;
+  --surface-soft: #1f1f1f;
+  --text: #ffffff;
+  --muted: #d8d8d8;
+  --line: #ffffff;
+  --primary: #ffffff;
+  --primary-strong: #ffffff;
+  --accent: #ffffff;
+  --danger: #ff6b6b;
+  --warning: #ffd166;
+  --ok: #85e89d;
+  --shadow: none;
+}
+
+body.black-theme .primary-btn {
+  color: #000000;
+}
+
+body.black-theme .brand-panel {
+  background: #000000;
+}
+
+body.black-theme .topbar {
+  background: rgba(0, 0, 0, 0.92);
 }
 
 button,
@@ -482,7 +512,22 @@ p {
   color: #234d8f;
 }
 
+.status.agendada {
+  background: #e7f4ee;
+  color: var(--ok);
+}
+
+.status.realizada {
+  background: #e9eef8;
+  color: #234d8f;
+}
+
 .status.cancelado {
+  background: #f7eaea;
+  color: var(--danger);
+}
+
+.status.cancelada {
   background: #f7eaea;
   color: var(--danger);
 }
@@ -505,6 +550,17 @@ p {
   font-size: 0.8rem;
   font-weight: 700;
   margin-bottom: 3px;
+}
+
+.result-box {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--surface-soft);
+}
+
+.result-box p {
+  margin: 6px 0;
 }
 
 .empty {
