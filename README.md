@@ -88,7 +88,7 @@ MAIL_FROM="ExameCare <seu-email@provedor.com>"
 WEB_ORIGIN="http://localhost:5173"
 ```
 
-Enquanto o SMTP não estiver configurado, a API imprime o link de verificação/recuperação no terminal para facilitar testes locais.
+Enquanto o SMTP não estiver configurado, a API imprime o link de recuperação no terminal para facilitar testes locais.
 
 Suba o PostgreSQL local com Docker:
 
@@ -143,8 +143,7 @@ senha: postgres
 ## Funcionalidades
 
 - cadastro e login de responsável;
-- verificação de conta por e-mail antes do primeiro login;
-- recuperação de senha por link enviado ao e-mail verificado;
+- recuperação de senha por link enviado ao e-mail cadastrado;
 - consentimento LGPD no cadastro;
 - personalização de perfil com tema, cor, tamanho da fonte, canal de notificação, telefone, cidade e foto;
 - cadastro e seleção de múltiplos idosos;

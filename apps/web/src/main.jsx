@@ -20,6 +20,14 @@ import "./styles.css";
 const today = new Date().toISOString().slice(0, 10);
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
+function isSoon(date) {
+  if (!date) return false;
+  const start = new Date(`${today}T00:00:00`);
+  const end = new Date(`${date}T00:00:00`);
+  const remainingDays = Math.ceil((end - start) / 86400000);
+  return remainingDays >= 0 && remainingDays <= 7;
+}
+
 const seed = {
   user: {
     name: "Marina Almeida",
@@ -76,16 +84,14 @@ const seed = {
 };
 
 function App() {
-  const initialVerifyToken = new URLSearchParams(window.location.search).get("verifyToken") || "";
   const initialResetToken = new URLSearchParams(window.location.search).get("resetToken") || "";
   const [data, setData] = useState(() => JSON.parse(localStorage.getItem("examecare.react")) || seed);
   const [session, setSession] = useState(() => JSON.parse(localStorage.getItem("examecare.session")) || null);
   const [patientId, setPatientId] = useState(data.patients[0]?.id || "");
   const [tab, setTab] = useState("exames");
   const [modal, setModal] = useState(null);
-  const [authMode, setAuthMode] = useState(initialVerifyToken ? "verify" : initialResetToken ? "reset" : "login");
+  const [authMode, setAuthMode] = useState(initialResetToken ? "reset" : "login");
   const [authMessage, setAuthMessage] = useState("");
-  const [verifyToken] = useState(initialVerifyToken);
   const [resetToken] = useState(initialResetToken);
 
   const patient = data.patients.find((item) => item.id === patientId) || data.patients[0];
@@ -108,13 +114,33 @@ function App() {
   }
 
   async function requestAuth(path, payload) {
+    let response;
+    try {
+      response = await fetch(`${API_URL}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    } catch {
+      throw new Error("Nao foi possivel conectar com a API. Confirme se npm run dev esta rodando e recarregue a pagina.");
+    }
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.message || "Nao foi possivel concluir a autenticacao.");
+    return body;
+  }
+
+  async function requestApi(path, payload) {
+    if (!session?.accessToken) throw new Error("Entre novamente para ativar notificacoes.");
     const response = await fetch(`${API_URL}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.accessToken}`
+      },
       body: JSON.stringify(payload)
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.message || "Nao foi possivel concluir a autenticacao.");
+    if (!response.ok) throw new Error(body.message || "Nao foi possivel concluir a acao.");
     return body;
   }
 
@@ -149,8 +175,8 @@ function App() {
         password: form.password,
         consent: Boolean(form.consent)
       });
-      setAuthMode("login");
-      setAuthMessage(result.message || "Conta criada. Verifique seu e-mail antes de entrar.");
+      saveSession({ accessToken: result.accessToken, user: result.user, source: "api" });
+      persist({ ...data, user: { ...data.user, ...result.user } });
     } catch (error) {
       setAuthMessage(error.message);
     }
@@ -163,21 +189,6 @@ function App() {
 
     try {
       const result = await requestAuth("/auth/forgot-password", form);
-      setAuthMode("login");
-      setAuthMessage(result.message);
-    } catch (error) {
-      setAuthMessage(error.message);
-    }
-  }
-
-  async function handleVerifyEmail(event) {
-    event.preventDefault();
-    setAuthMessage("");
-    const form = Object.fromEntries(new FormData(event.currentTarget));
-
-    try {
-      const result = await requestAuth("/auth/verify-email", { token: form.token });
-      window.history.replaceState({}, "", window.location.pathname);
       setAuthMode("login");
       setAuthMessage(result.message);
     } catch (error) {
@@ -205,24 +216,20 @@ function App() {
     }
   }
 
-  async function handleResendVerification(event) {
-    event.preventDefault();
-    setAuthMessage("");
-    const form = Object.fromEntries(new FormData(event.currentTarget));
+  const stats = useMemo(() => {
+    const selectedExams = data.exams.filter((exam) => exam.patientId === patient?.id);
+    const selectedConsultations = data.consultations.filter((consultation) => consultation.patientId === patient?.id);
+    const examAlerts = selectedExams.filter((exam) => exam.status === "Agendado" && isSoon(exam.date)).length;
+    const consultationAlerts = selectedConsultations.filter((consultation) => consultation.status === "Agendada" && isSoon(consultation.date)).length;
+    const resultAlerts = selectedExams.filter((exam) => exam.status === "Realizado" && !exam.resultTitle).length;
 
-    try {
-      const result = await requestAuth("/auth/resend-verification", form);
-      setAuthMessage(result.message);
-    } catch (error) {
-      setAuthMessage(error.message);
-    }
-  }
-
-  const stats = useMemo(() => ({
-    scheduled: data.exams.filter((exam) => exam.status === "Agendado").length,
-    results: data.exams.filter((exam) => exam.resultTitle).length,
-    consultations: data.consultations.filter((consultation) => consultation.status === "Agendada").length
-  }), [data]);
+    return {
+      scheduled: selectedExams.filter((exam) => exam.status === "Agendado").length,
+      results: selectedExams.filter((exam) => exam.resultTitle).length,
+      consultations: selectedConsultations.filter((consultation) => consultation.status === "Agendada").length,
+      notifications: examAlerts + consultationAlerts + resultAlerts
+    };
+  }, [data, patient?.id]);
 
   function saveProfile(event) {
     event.preventDefault();
@@ -281,8 +288,10 @@ function App() {
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey)
     });
+    await requestApi("/notifications/subscribe", subscription.toJSON());
     localStorage.setItem("examecare.pushSubscription", JSON.stringify(subscription));
-    alert("Notificações push ativadas neste navegador.");
+    await requestApi("/notifications/test", {});
+    alert("Notificacoes ativadas neste navegador.");
   }
 
   function logout() {
@@ -299,10 +308,7 @@ function App() {
         onLogin={handleLogin}
         onRegister={handleRegister}
         onRecover={handleRecover}
-        onVerify={handleVerifyEmail}
         onReset={handleResetPassword}
-        onResendVerification={handleResendVerification}
-        verifyToken={verifyToken}
         resetToken={resetToken}
       />
     );
@@ -334,7 +340,7 @@ function App() {
           <Metric icon={<CalendarDays />} label="Exames agendados" value={stats.scheduled} />
           <Metric icon={<FileUp />} label="Resultados enviados" value={stats.results} />
           <Metric icon={<Stethoscope />} label="Consultas futuras" value={stats.consultations} />
-          <Metric icon={<Bell />} label="Canal ativo" value={data.user.notificationChannel} />
+          <Metric icon={<Bell />} label="Notificações" value={stats.notifications} />
         </section>
 
         <section className="workspace">
@@ -371,7 +377,7 @@ function App() {
   );
 }
 
-function AuthScreen({ mode, message, onModeChange, onLogin, onRegister, onRecover, onVerify, onReset, onResendVerification, verifyToken, resetToken }) {
+function AuthScreen({ mode, message, onModeChange, onLogin, onRegister, onRecover, onReset, resetToken }) {
   return (
     <div className="auth-page">
       <section className="auth-visual">
@@ -394,9 +400,7 @@ function AuthScreen({ mode, message, onModeChange, onLogin, onRegister, onRecove
         {mode === "login" && <LoginForm onSubmit={onLogin} />}
         {mode === "register" && <RegisterForm onSubmit={onRegister} />}
         {mode === "recover" && <RecoverForm onSubmit={onRecover} />}
-        {mode === "verify" && <VerifyEmailForm token={verifyToken} onSubmit={onVerify} />}
         {mode === "reset" && <ResetPasswordForm token={resetToken} onSubmit={onReset} />}
-        {mode === "login" && <ResendVerificationForm onSubmit={onResendVerification} />}
       </section>
     </div>
   );
@@ -451,20 +455,6 @@ function RecoverForm({ onSubmit }) {
   );
 }
 
-function VerifyEmailForm({ token, onSubmit }) {
-  return (
-    <form className="auth-form" onSubmit={onSubmit}>
-      <div>
-        <ShieldCheck size={24} />
-        <h2>Verificar conta</h2>
-        <p className="muted">Confirme sua conta para liberar o acesso ao ExameCare.</p>
-      </div>
-      <label>Token de verificacao<input name="token" defaultValue={token} required /></label>
-      <button>Verificar e-mail</button>
-    </form>
-  );
-}
-
 function ResetPasswordForm({ token, onSubmit }) {
   return (
     <form className="auth-form" onSubmit={onSubmit}>
@@ -477,16 +467,6 @@ function ResetPasswordForm({ token, onSubmit }) {
       <label>Nova senha<input name="password" type="password" autoComplete="new-password" minLength="8" required /></label>
       <label>Confirmar senha<input name="confirmPassword" type="password" autoComplete="new-password" minLength="8" required /></label>
       <button>Redefinir senha</button>
-    </form>
-  );
-}
-
-function ResendVerificationForm({ onSubmit }) {
-  return (
-    <form className="auth-form auth-inline-form" onSubmit={onSubmit}>
-      <p className="muted">Nao recebeu o e-mail de verificacao?</p>
-      <label>E-mail<input name="email" type="email" required /></label>
-      <button type="submit">Reenviar verificacao</button>
     </form>
   );
 }
@@ -559,8 +539,7 @@ function Profile({ user, onSubmit, onEnablePush }) {
       <label>Cor principal<input name="accentColor" type="color" defaultValue={user.accentColor} /></label>
       <label>Tamanho da fonte<input name="fontScale" type="range" min="0.9" max="1.2" step="0.05" defaultValue={user.fontScale} /></label>
       <label>Notificação<select name="notificationChannel" defaultValue={user.notificationChannel}><option value="push">Push</option><option value="email">E-mail</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option></select></label>
-      <button type="button" onClick={onEnablePush}><Bell size={18} /> Ativar push real</button>
-      <div className="notice"><Palette size={20} /> As preferencias tambem existem no modelo relacional da API.</div>
+      <button type="button" onClick={onEnablePush}><Bell size={18} /> Ativar notificações</button>
     </form>
   );
 }

@@ -18,40 +18,18 @@ export class AuthService {
       data: { name: dto.name, email: dto.email.toLowerCase(), passwordHash, consentAt: new Date() },
       select: { id: true, name: true, email: true }
     });
-    await this.sendVerificationEmail(user.id, user.email, user.name);
-    return { message: "Conta criada. Verifique seu e-mail antes de entrar." };
+    return this.sign(user);
   }
 
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) throw new UnauthorizedException("Credenciais invalidas.");
-    if (!user.emailVerifiedAt) throw new UnauthorizedException("Verifique seu e-mail antes de entrar.");
     return this.sign({ id: user.id, name: user.name, email: user.email });
-  }
-
-  async verifyEmail(token: string) {
-    const authToken = await this.findValidToken(AuthTokenType.EMAIL_VERIFICATION, token);
-    if (!authToken) throw new BadRequestException("Token de verificacao invalido ou expirado.");
-
-    await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: authToken.userId }, data: { emailVerifiedAt: new Date() } }),
-      this.prisma.authToken.update({ where: { id: authToken.id }, data: { usedAt: new Date() } })
-    ]);
-
-    return { message: "E-mail verificado. Voce ja pode entrar." };
-  }
-
-  async resendVerification(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (user && !user.emailVerifiedAt) {
-      await this.sendVerificationEmail(user.id, user.email, user.name);
-    }
-    return { message: "Se a conta existir e ainda nao estiver verificada, enviaremos um novo e-mail." };
   }
 
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (user && user.emailVerifiedAt) {
+    if (user) {
       const token = await this.createToken(user.id, AuthTokenType.PASSWORD_RESET, 1000 * 60 * 30);
       const link = `${this.config.get("WEB_ORIGIN") || "http://localhost:5173"}?resetToken=${encodeURIComponent(token)}`;
       await this.sendEmail(user.email, "Recuperacao de senha ExameCare", [
@@ -61,7 +39,7 @@ export class AuthService {
         "Este link expira em 30 minutos."
       ].join("\n\n"));
     }
-    return { message: "Se o e-mail existir e estiver verificado, enviaremos instrucoes de recuperacao." };
+    return { message: "Se o e-mail existir, enviaremos instrucoes de recuperacao." };
   }
 
   async resetPassword(token: string, password: string) {
@@ -79,17 +57,6 @@ export class AuthService {
 
   sign(user: { id: string; name: string; email: string }) {
     return { user, accessToken: this.jwt.sign({ sub: user.id, email: user.email }) };
-  }
-
-  private async sendVerificationEmail(userId: string, email: string, name: string) {
-    const token = await this.createToken(userId, AuthTokenType.EMAIL_VERIFICATION, 1000 * 60 * 60 * 24);
-    const link = `${this.config.get("WEB_ORIGIN") || "http://localhost:5173"}?verifyToken=${encodeURIComponent(token)}`;
-    await this.sendEmail(email, "Verifique sua conta ExameCare", [
-      `Ola, ${name}.`,
-      "Clique no link abaixo para verificar sua conta:",
-      link,
-      "Este link expira em 24 horas."
-    ].join("\n\n"));
   }
 
   private async createToken(userId: string, type: AuthTokenType, ttlMs: number) {

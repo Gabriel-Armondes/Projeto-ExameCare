@@ -37,7 +37,6 @@ model User {
   email               String              @unique
   passwordHash        String
   consentAt           DateTime
-  emailVerifiedAt     DateTime?
   phone               String?
   city                String?
   avatarUrl           String?

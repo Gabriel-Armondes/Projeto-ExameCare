@@ -18,10 +18,6 @@ class EmailDto {
   @IsEmail() email!: string;
 }
 
-class TokenDto {
-  @IsString() token!: string;
-}
-
 class ResetPasswordDto {
   @IsString() token!: string;
   @MinLength(8) password!: string;
@@ -39,16 +35,6 @@ export class AuthController {
   @Post("login")
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
-  }
-
-  @Post("verify-email")
-  verifyEmail(@Body() dto: TokenDto) {
-    return this.auth.verifyEmail(dto.token);
-  }
-
-  @Post("resend-verification")
-  resendVerification(@Body() dto: EmailDto) {
-    return this.auth.resendVerification(dto.email);
   }
 
   @Post("forgot-password")
