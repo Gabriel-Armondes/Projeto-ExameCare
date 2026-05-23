@@ -1,2 +1,6 @@
 docs_extracted/
 wiki-current/
+node_modules/
+dist/
+.env
+uploads/

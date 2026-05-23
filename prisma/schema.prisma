@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExamStatus {
+  SCHEDULED
+  DONE
+  CANCELLED
+}
+
+enum ConsultationStatus {
+  SCHEDULED
+  DONE
+  CANCELLED
+}
+
+enum ThemeMode {
+  LIGHT
+  OCEAN
+  SUNSET
+  HIGH_CONTRAST
+}
+
+enum AuthTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model User {
+  id                  String              @id @default(uuid())
+  name                String
+  email               String              @unique
+  passwordHash        String
+  consentAt           DateTime
+  emailVerifiedAt     DateTime?
+  phone               String?
+  city                String?
+  avatarUrl           String?
+  theme               ThemeMode           @default(LIGHT)
+  accentColor         String              @default("#176b5b")
+  fontScale           Float               @default(1)
+  notificationChannel String              @default("push")
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  patients            Patient[]
+  pushSubscriptions   PushSubscription[]
+  authTokens          AuthToken[]
+}
+
+model AuthToken {
+  id        String        @id @default(uuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      AuthTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([userId, type, expiresAt])
+}
+
+model Patient {
+  id        String         @id @default(uuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  birthDate DateTime
+  cpf       String?
+  photoUrl  String?
+  allergies String?
+  notes     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  exams     Exam[]
+  consultations Consultation[]
+}
+
+model Exam {
+  id          String     @id @default(uuid())
+  userId      String
+  patientId   String
+  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  date        DateTime
+  time        String?
+  type        String
+  specialty   String
+  location    String
+  notes       String?
+  status      ExamStatus  @default(SCHEDULED)
+  resultTitle String?
+  resultUrl   String?
+  resultNotes String?
+  resultUploadedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([userId, patientId, status])
+}
+
+model Consultation {
+  id          String             @id @default(uuid())
+  userId      String
+  patientId   String
+  patient     Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor      String
+  specialty   String
+  date        DateTime
+  time        String?
+  mode        String             @default("Presencial")
+  location    String
+  reason      String?
+  notes       String?
+  status      ConsultationStatus @default(SCHEDULED)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([userId, patientId, status])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh     String
+  auth      String
+  createdAt DateTime @default(now())
+}
