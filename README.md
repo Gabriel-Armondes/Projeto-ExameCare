@@ -37,7 +37,6 @@ apps/
   web/      Front-end React/Vite
 prisma/     Schema relacional do banco
 ```
->>>>>>> e8fc965 (Atualizações do projeto ExameCare)
 
 ## Como executar
 
@@ -69,7 +68,6 @@ No Windows PowerShell:
 ```powershell
 Copy-Item .env.example .env
 ```
->>>>>>> e8fc965 (Atualizações do projeto ExameCare)
 
 No Prompt de Comando:
 
